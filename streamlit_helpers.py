@@ -225,6 +225,87 @@ def check_head_and_shoulders(series_window: pd.Series, peaks: list, troughs: lis
         # Handle any indexing errors or other issues
         return False
 
+def check_double_top_bottom(series_window: pd.Series, peaks: list, troughs: list, similarity_tol: float = 0.05):
+    """
+    Determine if a given subsequence (with identified peaks/troughs) forms a double top or double bottom pattern.
+    - series_window: Pandas Series of price values for the segment.
+    - peaks: list of indices of local maxima in the segment.
+    - troughs: list of indices of local minima in the segment.
+    - similarity_tol: tolerance for peak/trough height similarity (fraction of value).
+                      For example, 0.05 means peaks can differ by at most 5% in height.
+    Returns:
+    - A tuple (pattern_type, key_indices) where:
+         pattern_type is "double top" or "double bottom" (or None if no pattern detected),
+         key_indices is a list of the key points [idx1, idx2, idx3] that define the pattern:
+            For double top: [first_peak_idx, trough_idx, second_peak_idx]
+            For double bottom: [first_trough_idx, peak_idx, second_trough_idx]
+    """
+    arr = np.asarray(series_window.values, dtype=float)
+    n = len(arr)
+    pattern_type = None
+    key_points = []
+
+    # Check for double top pattern
+    if len(peaks) >= 2:
+        # Identify the two highest peaks by value
+        peak_values = [(arr[i], i) for i in peaks]
+        peak_values.sort(key=lambda x: x[0], reverse=True)  # sort by height descending
+        top1_val, top1_idx = peak_values[0]
+        top2_val, top2_idx = peak_values[1]
+        
+        # Ensure the two highest peaks are not the same point and appear in time order
+        if top1_idx != top2_idx:
+            # Sort the two peak indices chronologically
+            p1, p2 = sorted([top1_idx, top2_idx])
+            # Check there is a trough between these two peaks
+            if p2 - p1 > 1:  # there is at least one point between p1 and p2
+                # Find the lowest value between these two peaks (the valley)
+                mid_segment = arr[p1:p2+1]
+                valley_idx_rel = np.argmin(mid_segment)  # index relative to p1
+                valley_idx = p1 + valley_idx_rel
+                valley_val = arr[valley_idx]
+                # Check that valley is indeed between the two peaks
+                if valley_idx > p1 and valley_idx < p2:
+                    # Check similarity of peak heights
+                    height_diff = abs(arr[top1_idx] - arr[top2_idx])
+                    max_height = max(arr[top1_idx], arr[top2_idx])
+                    if max_height == 0:
+                        height_ratio = 0.0
+                    else:
+                        height_ratio = height_diff / max_height
+                    # Both peaks should be of similar height (difference within tolerance)
+                    if height_ratio <= similarity_tol:
+                        pattern_type = "double top"
+                        key_points = [p1, valley_idx, p2]
+
+    # Check for double bottom pattern (if not already classified as double top)
+    if pattern_type is None and len(troughs) >= 2:
+        # Identify two lowest troughs by value
+        trough_values = [(arr[i], i) for i in troughs]
+        trough_values.sort(key=lambda x: x[0])  # sort by value ascending (lower = more extreme trough)
+        bot1_val, bot1_idx = trough_values[0]
+        bot2_val, bot2_idx = trough_values[1]
+        if bot1_idx != bot2_idx:
+            t1, t2 = sorted([bot1_idx, bot2_idx])
+            if t2 - t1 > 1:  # at least one point between troughs
+                mid_segment = arr[t1:t2+1]
+                peak_idx_rel = np.argmax(mid_segment)
+                peak_idx = t1 + peak_idx_rel
+                peak_val = arr[peak_idx]
+                if peak_idx > t1 and peak_idx < t2:
+                    depth_diff = abs(arr[bot1_idx] - arr[bot2_idx])
+                    # Use absolute values for depth comparison
+                    max_depth = max(abs(arr[bot1_idx]), abs(arr[bot2_idx]))
+                    depth_ratio = depth_diff / max_depth if max_depth != 0 else 0.0
+                    if depth_ratio <= similarity_tol:
+                        pattern_type = "double bottom"
+                        key_points = [t1, peak_idx, t2]
+
+    if pattern_type:
+        return pattern_type, key_points
+    else:
+        return None, []
+
 def safe_date_format(dt_obj, format_str='%Y-%m-%d'):
     """Safely format a datetime object or return a placeholder if it's not a datetime"""
     if pd.api.types.is_datetime64_any_dtype(dt_obj) or isinstance(dt_obj, datetime):
@@ -398,6 +479,206 @@ def plotly_visualize_pattern(segment, pattern_idx, peaks, troughs, is_pattern):
     
     fig.update_layout(
         title=f"Pattern starting at index {pattern_idx}",
+        xaxis_title="Date",
+        yaxis_title="Price",
+        height=400,
+        showlegend=True
+    )
+    
+    return fig
+
+def plotly_visualize_double_patterns(price_series, patterns, m):
+    """
+    Visualize the price series with detected double top/bottom patterns using Plotly.
+    
+    Parameters:
+    - price_series: Pandas Series of price data.
+    - patterns: List of tuples (start_idx, pattern_type, key_points), where key_points are relative indices.
+    - m: Window length used for pattern detection.
+    
+    Returns:
+    - fig: Plotly figure object.
+    """
+    fig = go.Figure()
+    
+    # Add price series
+    fig.add_trace(go.Scatter(
+        x=price_series.index,
+        y=price_series.values,
+        mode='lines',
+        name='Price',
+        line=dict(color='blue', width=1)
+    ))
+    
+    # Add rectangles and annotations for each pattern
+    for idx, pattern_type, key_points in patterns:
+        if idx >= len(price_series) or idx + m > len(price_series):
+            continue  # Skip invalid indices
+            
+        start_time = price_series.index[idx]
+        end_time = price_series.index[min(idx + m - 1, len(price_series) - 1)]
+        
+        # Add a shaded rectangle for each pattern
+        color = "rgba(255, 165, 0, 0.3)" if pattern_type == "double top" else "rgba(0, 255, 0, 0.3)"
+        
+        fig.add_shape(
+            type="rect",
+            x0=start_time,
+            x1=end_time,
+            y0=min(price_series.iloc[idx:idx+m]),
+            y1=max(price_series.iloc[idx:idx+m]),
+            fillcolor=color,
+            opacity=0.7,
+            layer="below",
+            line_width=0,
+        )
+        
+        # Add pattern label
+        midpoint = price_series.index[idx + (m // 2)]
+        fig.add_annotation(
+            x=midpoint,
+            y=price_series.iloc[idx + (m // 2)],
+            text=pattern_type.upper(),
+            showarrow=False,
+            font=dict(color="black", size=10),
+            bgcolor="white",
+            bordercolor="black",
+            borderwidth=1
+        )
+    
+    fig.update_layout(
+        title=f"Price Chart with Detected Double Top/Bottom Patterns",
+        xaxis_title="Date",
+        yaxis_title="Price",
+        height=500,
+        legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
+    )
+    
+    return fig
+
+def plotly_visualize_double_pattern(segment, start_idx, pattern_info):
+    """
+    Visualize an individual double top/bottom pattern using Plotly.
+    
+    Parameters:
+    - segment: Pandas Series representing the subsequence containing the pattern.
+    - start_idx: Starting index of the pattern in the original price series.
+    - pattern_info: Tuple (pattern_type, key_points) where key_points are relative indices within the segment.
+    
+    Returns:
+    - fig: Plotly figure object showing the pattern with annotations.
+    """
+    fig = go.Figure()
+    pattern_type, key_points = pattern_info
+    
+    if len(segment) == 0 or pattern_type is None or not key_points:
+        # Empty or invalid pattern
+        return fig
+    
+    # Plot price series
+    fig.add_trace(go.Scatter(
+        x=segment.index,
+        y=segment.values,
+        mode='lines',
+        name='Price',
+        line=dict(color='blue', width=1)
+    ))
+    
+    marker_color = 'red' if pattern_type == 'double top' else 'green'
+    
+    # Plot pattern points with proper labels
+    if pattern_type == 'double top':
+        # Key points are [first_peak, valley, second_peak]
+        fig.add_trace(go.Scatter(
+            x=[segment.index[key_points[0]]],
+            y=[segment.iloc[key_points[0]]],
+            mode='markers+text',
+            marker=dict(symbol='triangle-up', size=12, color=marker_color),
+            text=['First Peak'],
+            textposition='top center',
+            name='First Peak'
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=[segment.index[key_points[1]]],
+            y=[segment.iloc[key_points[1]]],
+            mode='markers+text',
+            marker=dict(symbol='triangle-down', size=12, color=marker_color),
+            text=['Valley'],
+            textposition='bottom center',
+            name='Valley'
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=[segment.index[key_points[2]]],
+            y=[segment.iloc[key_points[2]]],
+            mode='markers+text',
+            marker=dict(symbol='triangle-up', size=12, color=marker_color),
+            text=['Second Peak'],
+            textposition='top center',
+            name='Second Peak'
+        ))
+        
+    else:  # 'double bottom'
+        # Key points are [first_trough, peak, second_trough]
+        fig.add_trace(go.Scatter(
+            x=[segment.index[key_points[0]]],
+            y=[segment.iloc[key_points[0]]],
+            mode='markers+text',
+            marker=dict(symbol='triangle-down', size=12, color=marker_color),
+            text=['First Trough'],
+            textposition='bottom center',
+            name='First Trough'
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=[segment.index[key_points[1]]],
+            y=[segment.iloc[key_points[1]]],
+            mode='markers+text',
+            marker=dict(symbol='triangle-up', size=12, color=marker_color),
+            text=['Peak'],
+            textposition='top center',
+            name='Peak'
+        ))
+        
+        fig.add_trace(go.Scatter(
+            x=[segment.index[key_points[2]]],
+            y=[segment.iloc[key_points[2]]],
+            mode='markers+text',
+            marker=dict(symbol='triangle-down', size=12, color=marker_color),
+            text=['Second Trough'],
+            textposition='bottom center',
+            name='Second Trough'
+        ))
+    
+    # Add neckline for visual reference
+    if pattern_type == 'double top':
+        # Connect the valleys
+        neckline_y = segment.iloc[key_points[1]]
+        fig.add_shape(
+            type="line",
+            x0=segment.index[0],
+            x1=segment.index[-1],
+            y0=neckline_y,
+            y1=neckline_y,
+            line=dict(color="red", width=1, dash="dash"),
+            name="Neckline"
+        )
+    elif pattern_type == 'double bottom':
+        # Connect the peaks
+        neckline_y = segment.iloc[key_points[1]]
+        fig.add_shape(
+            type="line",
+            x0=segment.index[0],
+            x1=segment.index[-1],
+            y0=neckline_y,
+            y1=neckline_y,
+            line=dict(color="green", width=1, dash="dash"),
+            name="Neckline"
+        )
+    
+    fig.update_layout(
+        title=f"{pattern_type.title()} Pattern",
         xaxis_title="Date",
         yaxis_title="Price",
         height=400,

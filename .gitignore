@@ -1,0 +1,79 @@
+# Python virtual environment
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.class
+.DS_Store
+# Ignore all virtual environments
+ENV/
+# Ignore large site-packages and cache
+site-packages/
+*.so
+*.dll
+*.dylib
+*.pyd
+# Ignore Jupyter notebook checkpoints
+.ipynb_checkpoints/
+# Ignore test output
+*.log
+# Ignore large data files
+*.csv
+*.h5
+*.parquet
+*.feather
+*.zip
+*.tar.gz
+*.lfs
+# Ignore all files in .venv (hidden venv)
+.venv/
+# Ignore all files in .env (hidden env)
+.env/
+# Ignore all files in .cache (pip cache, etc)
+.cache/
+# Ignore all files in .mypy_cache (mypy type checker)
+.mypy_cache/
+# Ignore all files in .pytest_cache (pytest)
+.pytest_cache/
+# Ignore all files in .tox (tox virtualenvs)
+.tox/
+# Ignore all files in .coverage (coverage.py)
+.coverage
+# Ignore all files in .idea (PyCharm project files)
+.idea/
+# Ignore all files in .vscode (VSCode project files)
+.vscode/
+# Ignore all files in dist and build (build output)
+dist/
+build/
+# Ignore all files in node_modules (Node.js projects)
+node_modules/
+# Ignore all files in .lfs (Git LFS pointer files)
+.lfs/
+# Ignore all files in .git-lfs (Git LFS internal files)
+.git-lfs/
+# Ignore all files in .git/annex (git-annex)
+.git/annex/
+# Ignore all files in .git-fat (git-fat)
+.git-fat/
+# Ignore all files in .git-svn (git-svn)
+.git-svn/
+# Ignore all files in .svn (Subversion)
+.svn/
+# Ignore all files in .hg (Mercurial)
+.hg/
+# Ignore all files in .bzr (Bazaar)
+.bzr/
+# Ignore all files in .next (Next.js build output)
+.next/
+# Ignore all files in .parcel-cache (Parcel build cache)
+.parcel-cache/
+# Ignore all files in .yarn (Yarn v2+)
+.yarn/
+# Ignore all files in .pnp (Yarn Plug'n'Play)
+.pnp.*
+# Ignore all files in .history (VSCode extension)
+.history/
+# Ignore all files in .sublime-* (Sublime Text project files)
+.sublime-*
+
